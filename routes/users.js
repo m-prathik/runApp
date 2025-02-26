@@ -1,7 +1,7 @@
 var express = require('express');
 var router = express.Router();
 var mongoose = require('mongoose');
-const { userExistInDb } = require('../db/userModel.js');
+const { userExistInDb } = require('../db/model/userModel.js');
 
 /* GET users listing. */
 router.get('/', function(req, res, next) {

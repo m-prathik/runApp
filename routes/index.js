@@ -1,7 +1,7 @@
 var express = require('express');
 var prettier = require('prettier');
 
-const userTable = require('../db/userModel.js');
+const userTable = require('../db/model/userModel.js');
 var router = express.Router();
 /* GET home page. */
 router.get('/', function(req, res, next) {
