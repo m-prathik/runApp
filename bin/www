@@ -13,7 +13,9 @@ const PORT = process.env.PORT || 7000;
 var connectToDB = require('../db/db.js').connectToDB;
 connectToDB();
 
+const {checkWritingData, influxDB} = require('../db/influxdb_conn.js');
 
+console.log("influxDB connected successfully");
 /**
  * Get port from environment and store in Express.
  */
