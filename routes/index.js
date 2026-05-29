@@ -1,16 +1,20 @@
-var express = require('express');
-var prettier = require('prettier');
+const express = require('express');
+const router = express.Router();
+const indexController = require('../controllers/indexController');
+const userController = require('../controllers/userController');
 
-const data = require('../db/model/userModel.js');
-var router = express.Router();
-/* GET home page. */
-router.get('/', function(req, res, next) {
-  res.render('index', { title: 'Running App' });
-});
+/**
+ * @route   GET /
+ * @desc    Render home page
+ * @access  Public
+ */
+router.get('/', indexController.getHomePage.bind(indexController));
 
-router.get('/allUsers',async function(req, res, next){
-    const result = await data.userTable.find();
-    res.send(JSON.stringify(result, null));
-})
+/**
+ * @route   GET /allUsers
+ * @desc    Get all users
+ * @access  Public
+ */
+router.get('/allUsers', userController.getAllUsers.bind(userController));
 
 module.exports = router;

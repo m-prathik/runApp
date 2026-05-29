@@ -1,1 +1,18 @@
 # fix the find() function in index.js file
+influx db token = "9eIVUrO6LBFiyaNukDcksH0yh7NexvNzGdKpQEGmv7Ri3YM4V_nuf5x6Fu73X-8nh-zBDtgK9s77d6qY5DPejg=="
+
+from(bucket: "run_time_stamps")
+  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)
+  |> filter(fn: (r) => r["_measurement"] == "runRoute4")
+  |> filter(fn: (r) => r._field == "latitude" or r._field == "longitude" or r._field == "heartBeat")
+  |> map(fn: (r) => ({
+      r with _value:
+        if r._field == "heartBeat" then int(v: r._value)
+        else int(v: r._value)
+    }))
+  |> group(columns: ["_time", "runId", "userId"])
+  |> pivot(rowKey:["_time"], columnKey: ["_field"], valueColumn: "_value")
+  |> sort(columns: ["_time"])
+
+
+  query in influxdb

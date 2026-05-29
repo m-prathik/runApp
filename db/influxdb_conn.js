@@ -1,88 +1,132 @@
-const {InfluxDB, Point} = require('@influxdata/influxdb-client');
+const { InfluxDB, Point } = require('@influxdata/influxdb-client');
+const config = require('../config');
+const logger = require('../utils/logger');
 
-const url = 'http://localhost:8086';
-const token = 'avpDXJaOCF6QCH0nRLRWUDUkw9ZPMboL7E2VnEt7SWO43oOix0er-BmggUz3FCmm_M0_btZqyyaWmUgkJZ2p1Q==';
-const org = 'dd';
-const bucket = 'run_time_stamps';
-
-
-// create a new influx db client
-
-const influxDB = new InfluxDB({url, token});
-
-// create a write api
-const writeApi = influxDB.getWriteApi(org, bucket,'ms')
 /**
- * 
- * runData = {
- *  "userId" : int,
- *  "distance" : float
- *  "metrics" : string,
- *  "runId" : "string"(auto generated from backend)
- *  "timeTaken" : string (hh:mm:ss) max(23:59:59)
- *  "route" : [
- *      {"latitude":float, "longitude":float, "heartBeat": int/null,"timeStamp":timeStamp},
- *      ..
- *      .. 
- *  ] 
- * 
- * 
- * 
- * }
+ * InfluxDB Connection Module
+ * Handles InfluxDB client initialization and data writing operations
  */
 
-const jsonData = {
-    "userID" : 3,
-    "distance": 2.47,
-    "metrics" : "km",
-    "runId": "42309847",
-    "timeTaken": "00:18:57",
-    "route": [
-        {"lat": 10.234083, "long": '18.3294723', "heartBeat" : null, "timeStamp": 1740895419}
-    ]
-}
+let influxDB = null;
+let writeApi = null;
 
-function writeDataFromJson(jsonData) {
-    //const points = 
-    const points = [];
-    jsonData.route.forEach(dataPoint => {
-        const lat = parseFloat(dataPoint.lat);
-        const long = parseFloat(dataPoint.long);
-        const heartBeat = dataPoint.heartBeat !== null ? parseInt(dataPoint.heartBeat) : 0;
-        console.log(lat);
-        console.log(long);
-        console.log(heartBeat);
-        console.log('before writing : lat type:', typeof lat, 'long type:', typeof long, 'heartBeat type:', typeof heartBeat);
-        const point = new Point('runRoute2')
-        .tag('runId',jsonData.runId)
-        .tag('userId', jsonData.userID)
-        .floatField('lat', lat)
-        .floatField('long',long)
-        .intField('heartBeat', heartBeat)
-        .timestamp(new Date(dataPoint.timeStamp * 1000));
-        console.log("writing point:", point);
-        points.push(point);
-        //writeApi.writePoint(point);
-        //return point;
+/**
+ * Initialize InfluxDB connection
+ * @returns {InfluxDB} InfluxDB client instance
+ */
+function initializeInfluxDB() {
+  if (!config.influxdb.token) {
+    logger.warn('InfluxDB token not configured. InfluxDB features will be disabled.');
+    return null;
+  }
 
+  try {
+    influxDB = new InfluxDB({
+      url: config.influxdb.url,
+      token: config.influxdb.token,
     });
-    if(points.length > 0) {
-        console.log(points.length);
-        writeApi.writePoints(points);
-    }
-    
 
-    //writeApi.writePoints(points);
-    writeApi.flush()
-    .then(() => {
-        console.log("Data points written to influxDb");
-    })
-    .catch((error) => {
-        console.error('Error writing data to InfluxDb', error);
-    })
+    writeApi = influxDB.getWriteApi(config.influxdb.org, config.influxdb.bucket, 'ms');
+    
+    // Set error handler for write API
+    writeApi.useDefaultTags({ app: 'runapp' });
+
+    logger.info('InfluxDB client initialized successfully');
+    return influxDB;
+  } catch (error) {
+    logger.error('Failed to initialize InfluxDB:', error);
+    throw error;
+  }
 }
-async function checkWritingData() {
-    await writeDataFromJson(jsonData);
+
+/**
+ * Write run data to InfluxDB
+ * @param {Object} runData - Run data object
+ * @param {number} runData.userID - User ID
+ * @param {string} runData.runId - Run ID
+ * @param {Array} runData.route - Array of route points
+ * @returns {Promise<void>}
+ */
+async function writeRunData(runData) {
+  if (!writeApi) {
+    throw new Error('InfluxDB write API not initialized');
+  }
+
+  if (!runData || !runData.route || !Array.isArray(runData.route) || runData.route.length === 0) {
+    throw new Error('Invalid run data: route array is required and must not be empty');
+  }
+
+  const points = [];
+
+  try {
+    runData.route.forEach((dataPoint) => {
+      const latitude = parseFloat(dataPoint.latitude);
+      const longitude = parseFloat(dataPoint.longitude);
+      const heartBeat = dataPoint.heartBeat !== null && dataPoint.heartBeat !== undefined
+        ? parseInt(dataPoint.heartBeat, 10)
+        : 0;
+
+      // Validate coordinates
+      if (isNaN(latitude) || isNaN(longitude)) {
+        logger.warn('Invalid coordinates in route point, skipping:', dataPoint);
+        return;
+      }
+
+      const point = new Point('runRoute4')
+        .tag('runId', String(runData.runId))
+        .tag('userId', String(runData.userID))
+        .floatField('latitude', latitude)
+        .floatField('longitude', longitude)
+        .intField('heartBeat', heartBeat);
+
+      // Set timestamp if provided
+      if (dataPoint.timeStamp) {
+        const timestamp = typeof dataPoint.timeStamp === 'number'
+          ? new Date(dataPoint.timeStamp * 1000)
+          : new Date(dataPoint.timeStamp);
+        point.timestamp(timestamp);
+      }
+
+      points.push(point);
+    });
+
+    if (points.length === 0) {
+      throw new Error('No valid points to write');
+    }
+
+    writeApi.writePoints(points);
+    await writeApi.flush();
+
+    logger.info(`Successfully wrote ${points.length} data points to InfluxDB`);
+  } catch (error) {
+    logger.error('Error writing data to InfluxDB:', error);
+    throw error;
+  }
 }
-writeDataFromJson(jsonData);
-module.exports = {checkWritingData, influxDB};
+
+/**
+ * Close InfluxDB write API
+ * @returns {Promise<void>}
+ */
+async function closeInfluxDB() {
+  if (writeApi) {
+    try {
+      await writeApi.close();
+      logger.info('InfluxDB write API closed');
+    } catch (error) {
+      logger.error('Error closing InfluxDB write API:', error);
+    }
+  }
+}
+
+// Initialize on module load if token is available
+if (config.influxdb.token) {
+  initializeInfluxDB();
+}
+
+module.exports = {
+  influxDB: () => influxDB,
+  initializeInfluxDB,
+  writeRunData,
+  closeInfluxDB,
+};
